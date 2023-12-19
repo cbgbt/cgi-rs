@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-hyper = "0.14"
+hyper = "1.1"
 snafu = "0.7"
 tokio = "1"

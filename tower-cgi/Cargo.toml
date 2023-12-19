@@ -6,7 +6,7 @@ license = "Apache-2.0"
 
 [dependencies]
 cgi-rs = { path = "../cgi-rs" }
-hyper = { version = "0.14", default-features = false }
+hyper = { version = "1.1", default-features = false }
 snafu = "0.7"
 tower = { version = "0.4", default-features = false, features = ["util"] }
 
