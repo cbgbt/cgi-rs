@@ -17,10 +17,13 @@
 //! ```
 
 use cgi_rs::{CGIError, CGIRequest, CGIResponse};
-use hyper::{Body as HttpBody, Request, Response};
 use snafu::ResultExt;
 use std::convert::Infallible;
+use std::fmt::Debug;
 use std::io::Write;
+use http_body_util::{Full, BodyExt};
+use hyper::body::{Body, Bytes};
+use hyper::{Request, Response};
 use tower::{Service, ServiceExt};
 
 /// Serve a CGI application.
@@ -28,11 +31,11 @@ use tower::{Service, ServiceExt};
 /// Responses are emitted to stdout per the CGI RFC3875
 pub async fn serve_cgi<S, B>(app: S) -> Result<()>
 where
-    S: Service<Request<HttpBody>, Response = Response<B>, Error = Infallible>
+    S: Service<Request<Full<Bytes>>, Response = Response<B>, Error = Infallible>
         + Clone
         + Send
         + 'static,
-    B: hyper::body::HttpBody,
+    B: Body, <B as Body>::Error: Debug
 {
     serve_cgi_with_output(std::io::stdout(), app).await
 }
@@ -42,13 +45,13 @@ where
 /// Responses are emitted to the provided output stream.
 pub async fn serve_cgi_with_output<S, B>(output: impl Write, app: S) -> Result<()>
 where
-    S: Service<Request<HttpBody>, Response = Response<B>, Error = Infallible>
+    S: Service<Request<Full<Bytes>>, Response = Response<B>, Error = Infallible>
         + Clone
         + Send
         + 'static,
-    B: hyper::body::HttpBody,
+    B: Body, <B as Body>::Error: Debug
 {
-    let request = CGIRequest::from_env()
+    let request = CGIRequest::<Full<Bytes>>::from_env()
         .and_then(Request::try_from)
         .context(error::CGIRequestParseSnafu)?;
 
@@ -57,7 +60,21 @@ where
         .await
         .expect("The Error type is Infallible, this should never fail.");
 
-    let cgi_response: CGIResponse<B> = response.try_into().context(error::CGIResponseParseSnafu)?;
+    let headers = response.headers().clone();
+    let status = response.status().to_string();
+    let reason = response.status().canonical_reason().map(|s| s.to_string());
+
+    let collected = response.into_body().collect().await;
+
+    let body_bytes = collected.unwrap().to_bytes();
+
+    let cgi_response = CGIResponse {
+        headers,
+        status,
+        reason,
+        body: body_bytes,
+    };
+
     cgi_response
         .write_response_to_output(output)
         .await

@@ -1,14 +1,18 @@
+use std::convert::Infallible;
 use crate::{error, CGIError, MetaVariable, MetaVariableKind, Result};
-use hyper::{Body as HttpBody, Request};
+use hyper::Request;
+use hyper::body::{Body, Bytes};
 use snafu::ResultExt;
 use std::io::{stdin, Read};
+use http_body_util::combinators::BoxBody;
+use http_body_util::Full;
 
-pub struct CGIRequest {
-    pub request_body: HttpBody,
+pub struct CGIRequest<B>  {
+    pub request_body: B
 }
 
-impl CGIRequest {
-    pub fn from_env() -> Result<Self> {
+impl <B> CGIRequest<B> where B: Body {
+    pub fn from_env() -> Result<CGIRequest<Full<Bytes>>> {
         let content_length = MetaVariableKind::ContentLength
             .from_env()
             .map(|content_length| {
@@ -19,8 +23,15 @@ impl CGIRequest {
             .transpose()?
             .unwrap_or_default();
 
-        let request_body = HttpBody::from(Self::request_body_from_env(content_length)?);
-        Ok(Self { request_body })
+        let read_content = Self::request_body_from_env(content_length)?;
+
+        let request_body = Bytes::from(read_content);
+
+        let full = Full::from(request_body);
+
+        let result = CGIRequest { request_body: full };
+
+        Ok(result)
     }
 
     pub fn var(&self, kind: MetaVariableKind) -> Option<MetaVariable> {
@@ -44,11 +55,22 @@ impl CGIRequest {
         self.var(MetaVariableKind::RequestUri)
             .map(|uri| Ok(uri.as_str()?.to_string()))
             .unwrap_or_else(|| {
+
+                let path_info_str = match MetaVariableKind::PathInfo.try_from_env() {
+                    Ok(meta_variable) => {
+                       String::from(meta_variable.as_str().unwrap_or(""))
+                    }
+                    Err(_) => {
+                        String::from("")
+                    }
+                };
+
                 let script_name = MetaVariableKind::ScriptName.try_from_env()?;
                 let query_string = MetaVariableKind::QueryString.try_from_env()?;
                 Ok(format!(
-                    "{}?{}",
+                    "{}{}?{}",
                     script_name.as_str()?,
+                    path_info_str,
                     query_string.as_str()?
                 ))
             })
@@ -65,10 +87,11 @@ macro_rules! try_set_headers {
     };
 }
 
-impl TryFrom<CGIRequest> for Request<HttpBody> {
+impl <B>TryFrom<CGIRequest<B>> for Request<B> where B: Body {
     type Error = CGIError;
 
-    fn try_from(cgi_request: CGIRequest) -> Result<Self> {
+    fn try_from(cgi_request: CGIRequest<B>) -> Result<Self> {
+
         let mut request_builder = Request::builder()
             .method(
                 cgi_request
@@ -84,6 +107,7 @@ impl TryFrom<CGIRequest> for Request<HttpBody> {
             ["Accept", MetaVariableKind::HttpAccept],
             ["Host", MetaVariableKind::HttpHost],
             ["User-Agent", MetaVariableKind::HttpUserAgent],
+            ["Cookie", MetaVariableKind::HttpCookie],
         );
 
         request_builder

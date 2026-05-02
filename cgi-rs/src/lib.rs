@@ -11,7 +11,9 @@
 //! ## Examples
 //! ### Parsing an HTTP Request
 //! ```rust
-//! use hyper::{Request, Body};
+//! use hyper::Request;
+//! use hyper::body::Bytes;
+//! use http_body_util::Full;
 //! use cgi_rs::CGIRequest;
 //!
 //! // In a CGI environment, the CGI server would set these variables, as well as others.
@@ -19,7 +21,7 @@
 //! std::env::set_var("CONTENT_LENGTH", "0");
 //! std::env::set_var("REQUEST_URI", "/");
 //!
-//! let cgi_request: Request<Body> = CGIRequest::from_env()
+//! let cgi_request: Request<Full<Bytes>> = CGIRequest::<Full<Bytes>>::from_env()
 //!     .and_then(Request::try_from).unwrap();
 //!
 //! assert_eq!(cgi_request.method(), "GET");
@@ -106,6 +108,7 @@ pub enum MetaVariableKind {
     HttpHost,
     HttpUserAgent,
     HttpAccept,
+    HttpCookie,
     ServerSignature,
     DocumentRoot,
     RequestScheme,
@@ -148,6 +151,7 @@ impl MetaVariableKind {
             MetaVariableKind::ScriptFilename => "SCRIPT_FILENAME",
             MetaVariableKind::RemotePort => "REMOTE_PORT",
             MetaVariableKind::RequestUri => "REQUEST_URI",
+            MetaVariableKind::HttpCookie => "HTTP_COOKIE"
         }
     }
 
